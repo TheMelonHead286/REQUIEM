@@ -1,0 +1,256 @@
+[gd_scene format=3 uid="uid://cfun2nhrblx6q"]
+
+[ext_resource type="Script" uid="uid://f6v5vo60ols8" path="res://scenes/main.gd" id="1_o5qli"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sgp6g"]
+sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+ground_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+
+[sub_resource type="Sky" id="Sky_o5qli"]
+sky_material = SubResource("ProceduralSkyMaterial_sgp6g")
+
+[sub_resource type="Environment" id="Environment_0wfyh"]
+background_mode = 2
+sky = SubResource("Sky_o5qli")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_o5qli"]
+auto_exposure_enabled = true
+
+[sub_resource type="GDScript" id="GDScript_sgp6g"]
+resource_name = "player_main"
+script/source = "extends CharacterBody3D
+@onready var head: Node3D = $head
+@onready var crouching_hitbox: CollisionShape3D = $crouching_hitbox
+@onready var standing_hitbox: CollisionShape3D = $standing_hitbox
+@onready var player_height: RayCast3D = $player_height
+
+var speed_current = 8.0
+const speed_walking = 8.0
+const speed_sprinting = 5.0
+const speed_crouching = 3.0
+const speed_slide = 8.0
+const speed_dash = 40.0
+
+var moving = false
+var fastfall = false
+var sliding = false
+var dash_ready = true
+
+var slide_timer = 3.0
+const slide_max = 3.0
+
+var jump_vel = 5
+const jump_slide = 7.25
+const jump_reg = 5
+
+const mouse_sens = 0.3
+var cameraWucky = 0.0
+var cameraWuckyPrincipal = 0.0
+var headPosition = 0.8
+
+var lerp_speed = 10.0
+
+var direction = Vector3.ZERO
+
+func _ready():
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+func _input(event):
+	#mice and cameras
+	if event is InputEventMouseMotion:
+		rotate_y(deg_to_rad(-event.relative.x * mouse_sens))
+		head.rotate_x(deg_to_rad(-event.relative.y * mouse_sens))
+		head.rotation.x = clamp(head.rotation.x,deg_to_rad(-89), deg_to_rad(89)) + cameraWucky
+
+func _process(delta: float) -> void:
+	#used to be called cameraFuckyWucky, but i got tired of typing fuck over and over
+	if sliding == true and is_on_floor() and moving == true:
+		cameraWucky = sin((Time.get_ticks_msec() * 0.001) * 10) * 0.005 * (slide_timer/slide_max)
+	elif fastfall == true:
+		cameraWucky = (sin((Time.get_ticks_msec() * 0.001) * 10) + 5) * 0.001
+	elif moving == true and is_on_floor():
+		cameraWucky = sin((Time.get_ticks_msec() * 0.001) * 10) * 0.0005
+	else:
+		cameraWucky = 0
+	head.rotation.x = clamp(head.rotation.x,deg_to_rad(-89), deg_to_rad(89)) + cameraWucky
+	
+	
+	head.position.y = lerp(head.position.y, headPosition, 0.5)
+
+func _physics_process(delta: float) -> void:
+	# Add the gravity. (so dramatic, godot)
+	if not is_on_floor():
+		if fastfall == true:
+			velocity += get_gravity() * delta * 3
+			speed_current = 0.0
+		else:
+			velocity += get_gravity() * delta
+	
+	#zoomies
+	if Input.is_action_pressed(\"crouch\") or player_height.is_colliding():
+		if slide_timer > 0.0:
+			slide_timer -= delta
+		if is_on_floor() or player_height.is_colliding():
+			fastfall = false
+			dash_ready = true
+			headPosition = -0.3
+			crouching_hitbox.disabled = false
+			standing_hitbox.disabled = true
+			if slide_timer <= 0.0:
+				sliding = false
+				speed_current = speed_crouching
+				jump_vel = jump_reg
+			elif player_height.is_colliding() and not Input.is_action_pressed(\"crouch\"):
+				sliding = false
+				speed_current = speed_crouching
+				jump_vel = jump_reg
+			else:
+				sliding = true
+				speed_current = speed_slide
+				jump_vel = jump_slide
+		elif Input.is_action_just_pressed(\"crouch\"):
+			sliding = false
+			headPosition = 0.8
+			crouching_hitbox.disabled = true
+			standing_hitbox.disabled = false
+			fastfall = true
+	elif Input.is_action_pressed(\"sprint\"):
+		sliding = false
+		jump_vel = jump_reg
+		if is_on_floor():
+			fastfall = false
+			dash_ready = true
+			speed_current = speed_sprinting
+		elif dash_ready == true and Input.is_action_just_pressed(\"sprint\"):
+			pass #dash time
+	else:
+		if is_on_floor():
+			fastfall = false
+			dash_ready = true
+		sliding = false
+		speed_current = speed_walking
+		jump_vel = jump_reg
+		headPosition = 0.8
+		crouching_hitbox.disabled = true
+		standing_hitbox.disabled = false
+	if slide_timer < slide_max and sliding == false:
+		slide_timer += delta
+	
+	# Handle jump.
+	if Input.is_action_pressed(\"jump\") and is_on_floor():
+		velocity.y = jump_vel
+		headPosition = 0.8
+	
+	# Get the input direction and handle the movement/deceleration.
+	var input_dir := Input.get_vector(\"left\", \"right\", \"forward\", \"backward\")
+	direction = lerp(direction,(transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized(),delta*lerp_speed)
+	if direction:
+		velocity.x = direction.x * speed_current
+		velocity.z = direction.z * speed_current
+	else:
+		velocity.x = move_toward(velocity.x, 0, speed_current)
+		velocity.z = move_toward(velocity.z, 0, speed_current)
+		
+	if velocity.length() > 0.001:
+		moving = true
+	else:
+		moving = false
+
+	move_and_slide()
+"
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_sgp6g"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_o5qli"]
+height = 1.2
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_0wfyh"]
+
+[node name="main" type="Node3D" unique_id=915478942]
+script = ExtResource("1_o5qli")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1869625180]
+environment = SubResource("Environment_0wfyh")
+camera_attributes = SubResource("CameraAttributesPractical_o5qli")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1129348834]
+transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
+shadow_enabled = true
+
+[node name="player" type="CharacterBody3D" parent="." unique_id=1178587737]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.3657138, 0)
+script = SubResource("GDScript_sgp6g")
+
+[node name="head" type="Node3D" parent="player" unique_id=695899607]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+
+[node name="cam" type="Camera3D" parent="player/head" unique_id=1438851693]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="player" unique_id=576786493]
+mesh = SubResource("CapsuleMesh_sgp6g")
+
+[node name="crouching_hitbox" type="CollisionShape3D" parent="player" unique_id=2061092789]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("CapsuleShape3D_o5qli")
+disabled = true
+
+[node name="standing_hitbox" type="CollisionShape3D" parent="player" unique_id=836428531]
+shape = SubResource("CapsuleShape3D_0wfyh")
+
+[node name="player_height" type="RayCast3D" parent="player" unique_id=1457074808]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
+target_position = Vector3(0, 2, 0)
+
+[node name="CSGCombiner3D" type="CSGCombiner3D" parent="." unique_id=453043358]
+use_collision = true
+
+[node name="CSGTorus3D" type="CSGTorus3D" parent="CSGCombiner3D" unique_id=17249954]
+transform = Transform3D(-3.090862e-08, 0.7071067, 0.70710677, -1, -4.371139e-08, 0, 3.090862e-08, -0.70710677, 0.7071067, 3, 10.5, 6.5)
+inner_radius = 4.0
+outer_radius = 5.5
+
+[node name="CSGCylinder3D" type="CSGCylinder3D" parent="CSGCombiner3D" unique_id=1596326746]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 3.125, 0)
+radius = 3.5
+height = 6.75
+
+[node name="CSGBox3D3" type="CSGBox3D" parent="CSGCombiner3D" unique_id=1806576685]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -16.75)
+size = Vector3(20, 2.5, 3.5)
+
+[node name="CSGBox3D2" type="CSGBox3D" parent="CSGCombiner3D" unique_id=307410976]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.75, -8.5)
+size = Vector3(20, 0.5, 3)
+
+[node name="CSGBox3D" type="CSGBox3D" parent="CSGCombiner3D" unique_id=113552436]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
+use_collision = true
+size = Vector3(40, 0.5, 40)
+
+[node name="CSGBox3D4" type="CSGBox3D" parent="CSGCombiner3D" unique_id=1105120087]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -8.5)
+size = Vector3(10, 2.5, 3)
+
+[node name="CSGCylinder3D2" type="CSGCylinder3D" parent="CSGCombiner3D" unique_id=593536252]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 2.78125, 6.5)
+height = 6.4375
+
+[node name="CSGBox3D6" type="CSGBox3D" parent="CSGCombiner3D" unique_id=907259762]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.5, 3, 12.5)
+size = Vector3(15, 6.5, 7)
+
+[node name="CSGCylinder3D3" type="CSGCylinder3D" parent="CSGCombiner3D/CSGBox3D6" unique_id=1209793726]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 0.0625, 0)
+radius = 3.5
+height = 6.375
+
+[node name="CSGBox3D5" type="CSGBox3D" parent="CSGCombiner3D/CSGBox3D6" unique_id=154729439]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.5, 0)
+operation = 2
+size = Vector3(12, 1.5, 7.5)
+
+[node name="CSGBox3D5" type="CSGBox3D" parent="CSGCombiner3D" unique_id=244585522]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -16.75)
+size = Vector3(24, 1.5, 3)
